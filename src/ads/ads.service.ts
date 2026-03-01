@@ -7,7 +7,7 @@ import { UpdateAdDto } from './dto/update-ad.dto';
 import { KafkaService } from '../kafka/kafka.service';
 import { KAFKA_TOPICS } from '../common/constants/kafka-topics';
 import { v4 as uuidv4 } from 'uuid';
-import { User, UserDocument } from 'src/users/schemas/user.schema';
+import { User, UserDocument } from '../users/schemas/user.schema';
 
 @Injectable()
 export class AdsService {
