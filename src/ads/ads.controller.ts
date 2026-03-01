@@ -231,38 +231,6 @@ export class AdsController {
   }
 
   /**
-   * Get single ad by ID
-   */
-  @Get(':adId')
-  async getAdById(@Param('adId') adId: string) {
-    this.logger.log(`REST: Getting ad by ID: ${adId}`);
-
-    try {
-      const ad = await this.adsService.getAdById(adId);
-
-      // Increment view count asynchronously
-      this.adsService.incrementViewCount(adId).catch(error => {
-        this.logger.error(`Error incrementing view count: ${error.message}`);
-      });
-
-      return {
-        success: true,
-        data: ad,
-        timestamp: new Date().toISOString()
-      };
-    } catch (error) {
-      this.logger.error(`REST: Error getting ad: ${error.message}`);
-
-      return {
-        success: false,
-        message: 'Failed to get ad',
-        error: error.message,
-        timestamp: new Date().toISOString()
-      };
-    }
-  }
-
-  /**
    * Get promoted ads
    */
   @Get('promoted/all')
@@ -928,6 +896,38 @@ export class AdsController {
     } catch (error) {
       this.logger.error(`Error fetching ad details: ${error.message}`);
       return { success: false, message: 'Ad not found' };
+    }
+  }
+
+  /**
+   * Keep this dynamic GET route near the bottom so static routes always win.
+   */
+  @Get(':adId')
+  async getAdById(@Param('adId') adId: string) {
+    this.logger.log(`REST: Getting ad by ID: ${adId}`);
+
+    try {
+      const ad = await this.adsService.getAdById(adId);
+
+      // Increment view count asynchronously
+      this.adsService.incrementViewCount(adId).catch(error => {
+        this.logger.error(`Error incrementing view count: ${error.message}`);
+      });
+
+      return {
+        success: true,
+        data: ad,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      this.logger.error(`REST: Error getting ad: ${error.message}`);
+
+      return {
+        success: false,
+        message: 'Failed to get ad',
+        error: error.message,
+        timestamp: new Date().toISOString()
+      };
     }
   }
 
