@@ -1,4 +1,4 @@
-import { Injectable, ConflictException, UnauthorizedException, NotFoundException, BadRequestException, ForbiddenException, Logger, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, ConflictException, UnauthorizedException, NotFoundException, BadRequestException, ForbiddenException, Logger, InternalServerErrorException, Optional } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import * as bcrypt from 'bcrypt';
@@ -18,8 +18,8 @@ export class UsersService {
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     private jwtService: JwtService,
-    private kafkaService: KafkaService,
     private configService: ConfigService,
+    @Optional() private kafkaService?: KafkaService,
   ) {}
 
   // ==================== PUBLIC METHODS ====================
@@ -54,12 +54,16 @@ export class UsersService {
     const savedUser = await user.save();
 
     // Emit Kafka event
-    await this.kafkaService.emit(KAFKA_TOPICS.USER_REGISTERED, {
-      userId: savedUser._id,
-      email: savedUser.email,
-      role: savedUser.role,
-      timestamp: new Date().toISOString(),
-    });
+    if (this.kafkaService) {
+      await this.kafkaService.emit(KAFKA_TOPICS.USER_REGISTERED, {
+        userId: savedUser._id,
+        email: savedUser.email,
+        role: savedUser.role,
+        timestamp: new Date().toISOString(),
+      });
+    } else {
+      this.logger.warn('Kafka disabled - USER_REGISTERED event skipped');
+    }
 
     return this.toResponseDto(savedUser);
   }
@@ -100,11 +104,15 @@ export class UsersService {
     ).exec();
 
     // Emit Kafka event
-    await this.kafkaService.emit(KAFKA_TOPICS.USER_LOGGED_IN, {
-      userId: user._id,
-      email: user.email,
-      timestamp: new Date().toISOString(),
-    });
+    if (this.kafkaService) {
+      await this.kafkaService.emit(KAFKA_TOPICS.USER_LOGGED_IN, {
+        userId: user._id,
+        email: user.email,
+        timestamp: new Date().toISOString(),
+      });
+    } else {
+      this.logger.warn('Kafka disabled - USER_LOGGED_IN event skipped');
+    }
 
     this.logger.log(`Login successful: ${user.email}`);
 
@@ -147,10 +155,14 @@ export class UsersService {
       { $pull: { refreshTokens: refreshToken } }
     ).exec();
 
-    await this.kafkaService.emit(KAFKA_TOPICS.USER_LOGGED_OUT, {
-      userId,
-      timestamp: new Date().toISOString(),
-    });
+    if (this.kafkaService) {
+      await this.kafkaService.emit(KAFKA_TOPICS.USER_LOGGED_OUT, {
+        userId,
+        timestamp: new Date().toISOString(),
+      });
+    } else {
+      this.logger.warn('Kafka disabled - USER_LOGGED_OUT event skipped');
+    }
   }
 
   // ==================== USER METHODS ====================
@@ -318,10 +330,14 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
 
-    await this.kafkaService.emit(KAFKA_TOPICS.USER_DELETED, {
-      userId,
-      timestamp: new Date().toISOString(),
-    });
+    if (this.kafkaService) {
+      await this.kafkaService.emit(KAFKA_TOPICS.USER_DELETED, {
+        userId,
+        timestamp: new Date().toISOString(),
+      });
+    } else {
+      this.logger.warn('Kafka disabled - USER_DELETED event skipped');
+    }
   }
 
   async adminGetStats(): Promise<any> {

@@ -18,8 +18,7 @@ export default registerAs('config', () => ({
   
   service: {
     name: process.env.SERVICE_NAME || 'ads-service',
-    // 🔴 IMPORTANT: Railway sets PORT automatically, don't hardcode fallback
-    port: parseInt(process.env.PORT, 10) || 3000,
+    port: parseInt(process.env.PORT, 10) || 3002,
   },
   
   cors: {

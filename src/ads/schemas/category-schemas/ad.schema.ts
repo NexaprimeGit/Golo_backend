@@ -26,7 +26,7 @@ export class Ad {
   title: string;
 
   @Prop({ required: true })
-  description: string; mas
+  description: string;
 
   @Prop({
     required: true, enum: [

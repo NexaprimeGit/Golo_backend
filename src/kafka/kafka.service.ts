@@ -1,4 +1,9 @@
-import { Injectable, OnModuleDestroy, OnModuleInit, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  OnModuleDestroy,
+  OnModuleInit,
+  Logger,
+} from '@nestjs/common';
 import { ClientKafka } from '@nestjs/microservices';
 import { ConfigService } from '@nestjs/config';
 import { KAFKA_TOPICS } from '../common/constants/kafka-topics';
@@ -6,10 +11,17 @@ import { KAFKA_TOPICS } from '../common/constants/kafka-topics';
 @Injectable()
 export class KafkaService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(KafkaService.name);
-  private kafkaClient: ClientKafka;
+  private kafkaClient: ClientKafka | null = null;
+  private readonly kafkaEnabled: boolean;
 
   constructor(private configService: ConfigService) {
-    this.initializeKafkaClient();
+    this.kafkaEnabled = process.env.ENABLE_KAFKA === 'true';
+
+    if (this.kafkaEnabled) {
+      this.initializeKafkaClient();
+    } else {
+      this.logger.log('Kafka is disabled via ENABLE_KAFKA=false');
+    }
   }
 
   // ==================== INITIALIZATION WITH RAILWAY SUPPORT ====================
@@ -207,10 +219,10 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
   // ==================== UTILITIES ====================
   
   private generateCorrelationId(): string {
-    return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${Math.random().toString(36).substr(2, 9)}`;
+    return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   }
 
-  getClient(): ClientKafka {
+  getClient(): ClientKafka | null {
     return this.kafkaClient;
   }
 

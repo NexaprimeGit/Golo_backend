@@ -13,6 +13,7 @@ import { KAFKA_TOPICS } from '../common/constants/kafka-topics';
 import { KafkaService } from '../kafka/kafka.service';
 import { v4 as uuidv4 } from 'uuid';
 import { UserRole } from '../users/schemas/user.schema';
+import { Optional } from '@nestjs/common';
 
 @Controller('ads')
 export class AdsController {
@@ -20,7 +21,7 @@ export class AdsController {
 
   constructor(
     private readonly adsService: AdsService,
-    private readonly kafkaService: KafkaService
+    @Optional() private readonly kafkaService?: KafkaService
   ) { }
 
   // ==================== PUBLIC ROUTES (No Auth Required) ====================
@@ -389,6 +390,14 @@ export class AdsController {
     const correlationId = uuidv4();
 
     try {
+      if (!this.kafkaService) {
+        return {
+          success: false,
+          message: 'Kafka is disabled on server',
+          timestamp: new Date().toISOString(),
+        };
+      }
+
       await this.kafkaService.send(KAFKA_TOPICS.AD_CREATE, createAdDto, correlationId);
 
       return {
@@ -545,6 +554,14 @@ export class AdsController {
     const correlationId = uuidv4();
 
     try {
+      if (!this.kafkaService) {
+        return {
+          success: false,
+          message: 'Kafka is disabled on server',
+          timestamp: new Date().toISOString(),
+        };
+      }
+
       await this.kafkaService.send(KAFKA_TOPICS.AD_UPDATE, {
         adId,
         userId: user.id,
@@ -633,6 +650,14 @@ async testKafka() {
     const correlationId = uuidv4();
 
     try {
+      if (!this.kafkaService) {
+        return {
+          success: false,
+          message: 'Kafka is disabled on server',
+          timestamp: new Date().toISOString(),
+        };
+      }
+
       await this.kafkaService.send(KAFKA_TOPICS.AD_DELETE, {
         adId,
         userId: user.id
@@ -682,13 +707,17 @@ async testKafka() {
 
       const updatedAd = await this.adsService.updateAd(adId, user.id, updateData);
 
-      await this.kafkaService.emit(KAFKA_TOPICS.AD_PROMOTED, {
+      if (this.kafkaService) {
+        await this.kafkaService.emit(KAFKA_TOPICS.AD_PROMOTED, {
         adId,
         userId: user.id,
         promotionPackage,
         promotedUntil,
         timestamp: new Date().toISOString()
-      }, uuidv4());
+        }, uuidv4());
+      } else {
+        this.logger.warn('Kafka disabled - AD_PROMOTED event not emitted');
+      }
 
       return {
         success: true,
