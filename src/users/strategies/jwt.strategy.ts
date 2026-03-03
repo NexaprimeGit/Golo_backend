@@ -27,15 +27,24 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: any) {
-    const user = await this.userModel.findById(payload.sub).exec();
-    if (!user) {
-      throw new UnauthorizedException('User not found');
+    try {
+      if (!payload || !payload.sub) {
+        throw new UnauthorizedException('Invalid JWT payload - missing sub claim');
+      }
+      
+      const user = await this.userModel.findById(payload.sub).exec();
+      if (!user) {
+        throw new UnauthorizedException('User not found');
+      }
+      return {
+        id: user._id,
+        email: user.email,
+        role: user.role,
+        name: user.name,
+      };
+    } catch (error) {
+      console.error('[JWT Strategy] Validation failed:', error.message);
+      throw error;
     }
-    return {
-      id: user._id,
-      email: user.email,
-      role: user.role,
-      name: user.name,
-    };
   }
 }

@@ -385,13 +385,23 @@ export class UsersService {
 
   async sendPasswordChangeOTP(userId: string): Promise<any> {
     this.logger.log(`Sending password change OTP for user: ${userId}`);
+    this.logger.debug(`Received userId: ${userId} (length: ${userId?.length})`);
     
     try {
+      // Validate userId format
+      if (!userId || typeof userId !== 'string') {
+        throw new BadRequestException('Invalid user ID');
+      }
+
       // Get full user document with all fields
       const user = await this.userModel.findById(userId).exec();
       if (!user) {
+        this.logger.warn(`User not found with ID: ${userId}`);
         throw new NotFoundException('User not found');
       }
+      
+      this.logger.debug(`User found: ${user.email}`);
+      this.logger.debug(`User phone: ${user.profile?.phone || 'NOT SET'}`);
       
       if (!user.profile?.phone) {
         throw new BadRequestException('Phone number not found in profile. Please update your phone number first.');
@@ -424,6 +434,7 @@ export class UsersService {
       };
     } catch (error) {
       this.logger.error(`Error in sendPasswordChangeOTP: ${error.message}`);
+      this.logger.error(`Stack: ${error.stack}`);
       throw error;
     }
   }
