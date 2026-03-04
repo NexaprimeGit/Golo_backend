@@ -33,7 +33,7 @@ export class Ad {
       'Education', 'Matrimonial', 'Vehicle', 'Business', 'Travel',
       'Astrology', 'Property', 'Public Notice', 'Lost & Found',
       'Service', 'Personal', 'Employment', 'Pets', 'Mobiles',
-      'Electronics & Home appliances', 'Furniture', 'Other'
+      'Electronics & Home appliances', 'Furniture', 'Greetings & Tributes', 'Other'
     ]
   })
   category: string;

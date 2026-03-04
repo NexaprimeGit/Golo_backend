@@ -89,7 +89,7 @@ export class UsersController {
     const result = await this.usersService.sendPasswordChangeOTP(user.id);
     return {
       success: true,
-      message: 'OTP sent to your registered phone number',
+      message: 'OTP sent to your registered email address',
       data: result,
     };
   }

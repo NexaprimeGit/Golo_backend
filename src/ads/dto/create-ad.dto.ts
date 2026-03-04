@@ -46,7 +46,7 @@ export class CreateAdDto {
     'Education', 'Matrimonial', 'Vehicle', 'Business', 'Travel',
     'Astrology', 'Property', 'Public Notice', 'Lost & Found',
     'Service', 'Personal', 'Employment', 'Pets', 'Mobiles',
-    'Electronics & Home appliances', 'Furniture', 'Other'
+    'Electronics & Home appliances', 'Furniture', 'Greetings & Tributes', 'Other'
   ])
   category: string;
 
@@ -224,6 +224,26 @@ export class CreateAdDto {
   @ValidateNested()
   @Type(() => PersonalDto)
   personalData?: PersonalDto;
+
+  // For Public Notice category
+  @IsOptional()
+  @IsObject()
+  publicNoticeData?: Record<string, any>;
+
+  // For Greetings & Tributes category
+  @IsOptional()
+  @IsObject()
+  greetingsData?: Record<string, any>;
+
+  // For Other category (and fallback category-specific payload)
+  @IsOptional()
+  @IsObject()
+  otherData?: Record<string, any>;
+
+  // Generic fallback container for category-specific payload
+  @IsOptional()
+  @IsObject()
+  categorySpecificData?: Record<string, any>;
 
   @IsOptional()
   @IsArray()

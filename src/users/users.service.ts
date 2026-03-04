@@ -10,13 +10,14 @@ import { UserResponseDto } from './dto/user-response.dto';
 import { KafkaService } from '../kafka/kafka.service';
 import { KAFKA_TOPICS } from '../common/constants/kafka-topics';
 import { ConfigService } from '@nestjs/config';
-import twilio from 'twilio';
+import * as nodemailer from 'nodemailer';
 
 @Injectable()
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
 
-  private twilioClient: any;
+  private mailTransporter: nodemailer.Transporter | null = null;
+  private mailFrom: string | null = null;
 
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
@@ -24,15 +25,26 @@ export class UsersService {
     private configService: ConfigService,
     @Optional() private kafkaService?: KafkaService,
   ) {
-    // initialize twilio client if credentials provided
-    const sid = this.configService.get('TWILIO_SID');
-    const auth = this.configService.get('TWILIO_AUTH');
-    const phone = this.configService.get('TWILIO_PHONE');
-    this.logger.debug(`Twilio config sid=${!!sid} auth=${!!auth} phone=${!!phone}`);
-    if (sid && auth) {
-      this.twilioClient = twilio(sid, auth);
+    const smtpHost = this.configService.get<string>('SMTP_HOST');
+    const smtpPort = Number(this.configService.get<string>('SMTP_PORT') || '587');
+    const smtpUser = this.configService.get<string>('SMTP_USER');
+    const smtpPass = this.configService.get<string>('SMTP_PASS');
+    this.mailFrom = this.configService.get<string>('SMTP_FROM') || smtpUser || null;
+
+    this.logger.debug(`SMTP config host=${!!smtpHost} port=${smtpPort} user=${!!smtpUser}`);
+
+    if (smtpHost && smtpUser && smtpPass && this.mailFrom) {
+      this.mailTransporter = nodemailer.createTransport({
+        host: smtpHost,
+        port: smtpPort,
+        secure: smtpPort === 465,
+        auth: {
+          user: smtpUser,
+          pass: smtpPass,
+        },
+      });
     } else {
-      this.logger.warn('Twilio credentials missing; SMS functionality disabled');
+      this.logger.warn('SMTP credentials missing; email OTP functionality disabled');
     }
   }
 
@@ -398,7 +410,7 @@ export class UsersService {
   }
 
   async sendPasswordChangeOTP(userId: string): Promise<any> {
-    this.logger.log(`Sending password change OTP for user: ${userId}`);
+    this.logger.log(`Sending password change OTP email for user: ${userId}`);
     
     try {
       // Validate userId - handle both string and ObjectId
@@ -417,10 +429,10 @@ export class UsersService {
       }
       
       this.logger.debug(`User found: ${user.email}`);
-      this.logger.debug(`User phone: ${user.profile?.phone || 'NOT SET'}`);
+      this.logger.debug(`User email: ${user.email || 'NOT SET'}`);
       
-      if (!user.profile?.phone) {
-        throw new BadRequestException('Phone number not found in profile. Please update your phone number first.');
+      if (!user.email) {
+        throw new BadRequestException('Registered email not found for this account.');
       }
 
       const otp = this.generateOTP();
@@ -440,25 +452,29 @@ export class UsersService {
         { new: true }
       ).exec();
 
-      // send via Twilio if available
-      if (this.twilioClient) {
-        try {
-          await this.twilioClient.messages.create({
-            body: `Your GOLO OTP is ${otp}`,
-            from: this.configService.get('TWILIO_PHONE'),
-            to: `+91${user.profile.phone}`,
-          });
-          this.logger.log(`SMS OTP sent via Twilio to ${user.profile.phone}`);
-        } catch (smsErr) {
-          this.logger.error(`Twilio SMS error: ${smsErr.message}`);
-        }
-      } else {
-        this.logger.log(`OTP for ${user.email}: ${otp} (expires in 5 minutes)`);
-        console.log(`[DEBUG] OTP ${otp} sent to ${user.profile.phone}`);
+      if (!this.mailTransporter || !this.mailFrom) {
+        throw new InternalServerErrorException('Email service not configured. Please contact support.');
       }
 
+      await this.mailTransporter.sendMail({
+        from: this.mailFrom,
+        to: user.email,
+        subject: 'GOLO Password Change OTP',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto;">
+            <h2 style="color: #157A4F; margin-bottom: 12px;">GOLO Password Verification</h2>
+            <p style="margin-bottom: 16px; color: #333;">Use this OTP to verify your password change request:</p>
+            <div style="font-size: 28px; letter-spacing: 6px; font-weight: 700; color: #111; margin: 18px 0;">${otp}</div>
+            <p style="color: #555; margin-bottom: 8px;">This OTP is valid for 5 minutes.</p>
+            <p style="color: #777; font-size: 13px;">If you did not request this, please ignore this email.</p>
+          </div>
+        `,
+      });
+
+      this.logger.log(`OTP email sent successfully to ${user.email}`);
+
       return {
-        message: 'OTP sent to registered phone number',
+        message: 'OTP sent to your registered email address',
         expiresIn: 300, // 5 minutes in seconds
       };
     } catch (error) {
@@ -522,6 +538,19 @@ export class UsersService {
       throw new BadRequestException('OTP has expired. Please request a new one.');
     }
 
+    const isCurrentPassword = await bcrypt.compare(newPassword, user.password);
+    if (isCurrentPassword) {
+      throw new BadRequestException('New password cannot be the same as your current password.');
+    }
+
+    const passwordHistory = Array.isArray(user.passwordHistory) ? user.passwordHistory : [];
+    for (const oldPasswordHash of passwordHistory) {
+      const isReusedPassword = await bcrypt.compare(newPassword, oldPasswordHash);
+      if (isReusedPassword) {
+        throw new BadRequestException('Previously used passwords are not allowed. Please choose a different password.');
+      }
+    }
+
     // Hash new password
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
@@ -535,7 +564,13 @@ export class UsersService {
           passwordChangeOTPExpiry: null,
           passwordChangeOTPVerified: false,
           updatedAt: new Date(),
-        }
+        },
+        $push: {
+          passwordHistory: {
+            $each: [user.password],
+            $slice: -5,
+          },
+        },
       },
       { new: true }
     ).exec();

@@ -43,53 +43,68 @@ export class AdsService {
     }
 
     let categorySpecificData: any = {};
+    const payload: any = createAdDto as any;
 
     switch (createAdDto.category) {
       case 'Vehicle':
-        categorySpecificData = createAdDto.vehicleData || {};
+        categorySpecificData = payload.vehicleData || {};
         break;
       case 'Property':
-        categorySpecificData = createAdDto.propertyData || {};
+        categorySpecificData = payload.propertyData || {};
         break;
       case 'Service':
-        categorySpecificData = createAdDto.serviceData || {};
+        categorySpecificData = payload.serviceData || {};
         break;
       case 'Mobiles':
-        categorySpecificData = createAdDto.mobileData || {};
+        categorySpecificData = payload.mobileData || {};
         break;
+      case 'Electronics':
       case 'Electronics & Home appliances':
-        categorySpecificData = createAdDto.electronicsData || {};
+        categorySpecificData = payload.electronicsData || {};
         break;
       case 'Furniture':
-        categorySpecificData = createAdDto.furnitureData || {};
+        categorySpecificData = payload.furnitureData || {};
         break;
       case 'Education':
-        categorySpecificData = createAdDto.educationData || {};
+        categorySpecificData = payload.educationData || {};
         break;
       case 'Pets':
-        categorySpecificData = createAdDto.petsData || {};
+        categorySpecificData = payload.petsData || {};
         break;
       case 'Matrimonial':
-        categorySpecificData = createAdDto.matrimonialData || {};
+        categorySpecificData = payload.matrimonialData || {};
         break;
       case 'Business':
-        categorySpecificData = createAdDto.businessData || {};
+        categorySpecificData = payload.businessData || {};
         break;
       case 'Travel':
-        categorySpecificData = createAdDto.travelData || {};
+        categorySpecificData = payload.travelData || {};
         break;
       case 'Astrology':
-        categorySpecificData = createAdDto.astrologyData || {};
+        categorySpecificData = payload.astrologyData || {};
         break;
       case 'Employment':
-        categorySpecificData = createAdDto.employmentData || {};
+        categorySpecificData = payload.employmentData || {};
         break;
       case 'Lost & Found':
-        categorySpecificData = createAdDto.lostFoundData || {};
+        categorySpecificData = payload.lostFoundData || payload.lostAndFoundData || {};
         break;
       case 'Personal':
-        categorySpecificData = createAdDto.personalData || {};
+        categorySpecificData = payload.personalData || {};
         break;
+      case 'Public Notice':
+        categorySpecificData = payload.publicNoticeData || {};
+        break;
+      case 'Greetings & Tributes':
+        categorySpecificData = payload.greetingsData || payload.otherData || {};
+        break;
+      case 'Other':
+        categorySpecificData = payload.otherData || {};
+        break;
+    }
+
+    if (!categorySpecificData || Object.keys(categorySpecificData).length === 0) {
+      categorySpecificData = payload.categorySpecificData || {};
     }
 
     this.validateCategoryData(createAdDto.category, categorySpecificData);
@@ -159,7 +174,12 @@ export class AdsService {
   ============================================================ */
 
   async getAdById(adId: string): Promise<Ad> {
-    const ad = await this.adModel.findOne({ adId }).exec();
+    let ad = await this.adModel.findOne({ adId }).exec();
+
+    if (!ad && /^[0-9a-fA-F]{24}$/.test(adId)) {
+      ad = await this.adModel.findById(adId).exec();
+    }
+
     if (!ad) throw new NotFoundException(`Ad ${adId} not found`);
     return ad;
   }
@@ -338,7 +358,17 @@ export class AdsService {
 
   async incrementViewCount(adId: string): Promise<void> {
     try {
-      await this.adModel.findOneAndUpdate({ adId }, { $inc: { views: 1 }, $set: { updatedAt: new Date() } }).exec();
+      let updated = await this.adModel.findOneAndUpdate(
+        { adId },
+        { $inc: { views: 1 }, $set: { updatedAt: new Date() } },
+      ).exec();
+
+      if (!updated && /^[0-9a-fA-F]{24}$/.test(adId)) {
+        await this.adModel.findByIdAndUpdate(
+          adId,
+          { $inc: { views: 1 }, $set: { updatedAt: new Date() } },
+        ).exec();
+      }
     } catch (error: any) {
       this.logger.error(`Failed to increment view count for ${adId}: ${error.message}`);
     }
