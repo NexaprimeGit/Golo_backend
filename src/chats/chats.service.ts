@@ -178,6 +178,9 @@ export class ChatsService {
           conversationId: message.conversationId,
           adId: message.adId,
           adTitle: message.adTitle || null,
+          adImage: message.adImage || null,
+          adPrice: message.adPrice ?? null,
+          adLocation: message.adLocation || null,
           senderId: message.senderId,
           sender: senderMap.get(message.senderId)
             ? {
@@ -217,6 +220,9 @@ export class ChatsService {
       conversationId: this.toConversationId(conversation._id),
       adId: resolvedAdId,
       adTitle: resolvedAdTitle,
+      adImage: adContext?.images?.[0] || null,
+      adPrice: adContext?.price ?? null,
+      adLocation: adContext?.location || null,
       senderId: String(userId),
       text,
       readBy: [String(userId)],
@@ -238,6 +244,9 @@ export class ChatsService {
       conversationId: message.conversationId,
       adId: message.adId,
       adTitle: message.adTitle || null,
+      adImage: message.adImage || null,
+      adPrice: message.adPrice ?? null,
+      adLocation: message.adLocation || null,
       senderId: message.senderId,
       sender: sender
         ? {

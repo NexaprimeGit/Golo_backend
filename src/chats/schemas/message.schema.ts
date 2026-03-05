@@ -14,6 +14,15 @@ export class Message {
   @Prop()
   adTitle?: string;
 
+  @Prop()
+  adImage?: string;
+
+  @Prop()
+  adPrice?: number;
+
+  @Prop()
+  adLocation?: string;
+
   @Prop({ required: true })
   senderId: string;
 
