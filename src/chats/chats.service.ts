@@ -190,6 +190,7 @@ export class ChatsService {
               }
             : null,
           text: message.text,
+          attachments: message.attachments || [],
           readBy: message.readBy || [],
           createdAt: message.createdAt,
           updatedAt: message.updatedAt,
@@ -207,8 +208,20 @@ export class ChatsService {
     const conversation = await this.getConversationForUser(userId, conversationId);
 
     const text = dto.text?.trim();
-    if (!text) {
-      throw new BadRequestException('Message text is required');
+    const attachments = Array.isArray(dto.attachments)
+      ? dto.attachments
+          .filter((attachment) => attachment?.url && attachment?.name && attachment?.mimeType)
+          .map((attachment) => ({
+            name: attachment.name,
+            mimeType: attachment.mimeType,
+            url: attachment.url,
+            type: attachment.type || (attachment.mimeType.startsWith('image/') ? 'image' : 'file'),
+            size: attachment.size,
+          }))
+      : [];
+
+    if (!text && attachments.length === 0) {
+      throw new BadRequestException('Message text or attachment is required');
     }
 
     const adContextId = dto.adId || conversation.adId;
@@ -224,13 +237,14 @@ export class ChatsService {
       adPrice: adContext?.price ?? null,
       adLocation: adContext?.location || null,
       senderId: String(userId),
-      text,
+      text: text || '',
+      attachments,
       readBy: [String(userId)],
     });
 
     conversation.adId = resolvedAdId;
     conversation.adTitle = resolvedAdTitle;
-    conversation.lastMessageText = text;
+    conversation.lastMessageText = text || (attachments.length ? '📎 Attachment' : '');
     conversation.lastMessageAdId = resolvedAdId;
     conversation.lastMessageAdTitle = resolvedAdTitle;
     conversation.lastMessageAt = new Date();
@@ -256,10 +270,57 @@ export class ChatsService {
           }
         : null,
       text: message.text,
+      attachments: message.attachments || [],
       readBy: message.readBy || [],
       participants: conversation.participants,
       createdAt: message.createdAt,
       updatedAt: message.updatedAt,
+    };
+  }
+
+  async markConversationAsRead(userId: string, conversationId: string) {
+    const conversation = await this.getConversationForUser(userId, conversationId);
+
+    const unreadMessages = await this.messageModel
+      .find({
+        conversationId: this.toConversationId(conversation._id),
+        senderId: { $ne: String(userId) },
+        readBy: { $ne: String(userId) },
+      })
+      .select('_id')
+      .exec();
+
+    if (unreadMessages.length === 0) {
+      return {
+        conversation,
+        messageIds: [] as string[],
+      };
+    }
+
+    const ids = unreadMessages.map((message) => message._id);
+
+    await this.messageModel
+      .updateMany(
+        { _id: { $in: ids } },
+        {
+          $addToSet: { readBy: String(userId) },
+        },
+      )
+      .exec();
+
+    return {
+      conversation,
+      messageIds: ids.map((id) => this.toConversationId(id)),
+    };
+  }
+
+  async getConversationPresenceForUser(userId: string, conversationId: string) {
+    const conversation = await this.getConversationForUser(userId, conversationId);
+    const otherUserId = conversation.participants.find((id) => id !== String(userId)) || null;
+    return {
+      conversation,
+      otherUserId,
+      participants: conversation.participants,
     };
   }
 

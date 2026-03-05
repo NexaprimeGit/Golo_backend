@@ -3,6 +3,23 @@ import { Document } from 'mongoose';
 
 export type MessageDocument = Message & Document;
 
+class MessageAttachment {
+  @Prop({ required: true })
+  name: string;
+
+  @Prop({ required: true })
+  mimeType: string;
+
+  @Prop({ required: true })
+  url: string;
+
+  @Prop({ enum: ['image', 'file'], default: 'file' })
+  type: 'image' | 'file';
+
+  @Prop()
+  size?: number;
+}
+
 @Schema({ timestamps: true, collection: 'messages' })
 export class Message {
   @Prop({ required: true, index: true })
@@ -28,6 +45,9 @@ export class Message {
 
   @Prop({ required: true })
   text: string;
+
+  @Prop({ type: [MessageAttachment], default: [] })
+  attachments: MessageAttachment[];
 
   @Prop({ type: [String], default: [] })
   readBy: string[];

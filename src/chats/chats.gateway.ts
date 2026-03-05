@@ -26,6 +26,8 @@ export class ChatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 	server: Server;
 
 	private readonly logger = new Logger(ChatsGateway.name);
+	private readonly onlineUsers = new Map<string, Set<string>>();
+	private readonly lastSeenMap = new Map<string, string>();
 
 	constructor(
 		private jwtService: JwtService,
@@ -54,6 +56,12 @@ export class ChatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 			const userId = String(payload.sub);
 			client.data.userId = userId;
 			client.join(`user:${userId}`);
+			this.trackOnline(userId, client.id);
+			this.server.emit('presence_state', {
+				userId,
+				online: true,
+				lastSeenAt: null,
+			});
 
 			this.logger.debug(`Socket connected for user ${userId}: ${client.id}`);
 		} catch (error) {
@@ -64,7 +72,42 @@ export class ChatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 	}
 
 	handleDisconnect(client: Socket) {
+		const userId = client.data?.userId as string | undefined;
+		if (userId) {
+			const isStillOnline = this.trackOffline(userId, client.id);
+			if (!isStillOnline) {
+				const lastSeenAt = new Date().toISOString();
+				this.lastSeenMap.set(userId, lastSeenAt);
+				this.server.emit('presence_state', {
+					userId,
+					online: false,
+					lastSeenAt,
+				});
+			}
+		}
 		this.logger.debug(`Socket disconnected: ${client.id}`);
+	}
+
+	private trackOnline(userId: string, socketId: string) {
+		if (!this.onlineUsers.has(userId)) {
+			this.onlineUsers.set(userId, new Set());
+		}
+		this.onlineUsers.get(userId)?.add(socketId);
+	}
+
+	private trackOffline(userId: string, socketId: string) {
+		const sockets = this.onlineUsers.get(userId);
+		if (!sockets) return false;
+		sockets.delete(socketId);
+		if (sockets.size === 0) {
+			this.onlineUsers.delete(userId);
+			return false;
+		}
+		return true;
+	}
+
+	private isUserOnline(userId: string) {
+		return this.onlineUsers.has(String(userId));
 	}
 
 	@SubscribeMessage('join_conversation')
@@ -81,6 +124,16 @@ export class ChatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 			const conversation = await this.chatsService.getConversationForUser(userId, payload.conversationId);
 			const room = `conversation:${conversation._id.toString()}`;
 			client.join(room);
+
+			const otherUserId = conversation.participants.find((id) => id !== String(userId)) || null;
+			if (otherUserId) {
+				const lastSeenAt = this.lastSeenMap.get(otherUserId) || null;
+				client.emit('presence_state', {
+					userId: otherUserId,
+					online: this.isUserOnline(otherUserId),
+					lastSeenAt,
+				});
+			}
 
 			return {
 				success: true,
@@ -104,7 +157,19 @@ export class ChatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 	@SubscribeMessage('send_message')
 	async sendMessage(
 		@ConnectedSocket() client: Socket,
-		@MessageBody() payload: { conversationId: string; text: string; adId?: string },
+		@MessageBody()
+		payload: {
+			conversationId: string;
+			text?: string;
+			adId?: string;
+			attachments?: Array<{
+				name: string;
+				mimeType: string;
+				url: string;
+				type?: 'image' | 'file';
+				size?: number;
+			}>;
+		},
 	) {
 		try {
 			const userId = client.data.userId as string;
@@ -115,6 +180,7 @@ export class ChatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 			const message = await this.chatsService.sendMessage(userId, payload.conversationId, {
 				text: payload.text,
 				adId: payload.adId,
+				attachments: payload.attachments,
 			});
 
 			const room = `conversation:${payload.conversationId}`;
@@ -127,12 +193,19 @@ export class ChatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 			for (const participantId of participants) {
 				this.server.to(`user:${participantId}`).emit('conversation_updated', {
 					conversationId: payload.conversationId,
-					lastMessageText: message.text,
+					lastMessageText: message.text || (Array.isArray(message.attachments) && message.attachments.length ? '📎 Attachment' : ''),
 					lastMessageAt: message.createdAt,
 					lastMessageAdId: message.adId,
 					lastMessageAdTitle: message.adTitle || null,
 					message,
 				});
+				if (String(participantId) !== String(userId)) {
+					this.server.to(`user:${participantId}`).emit('presence_state', {
+						userId,
+						online: this.isUserOnline(userId),
+						lastSeenAt: this.lastSeenMap.get(userId) || null,
+					});
+				}
 			}
 
 			return {
@@ -142,5 +215,86 @@ export class ChatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 		} catch (error) {
 			throw new WsException(error.message || 'Failed to send message');
 		}
+	}
+
+	@SubscribeMessage('typing_start')
+	async typingStart(
+		@ConnectedSocket() client: Socket,
+		@MessageBody() payload: { conversationId: string },
+	) {
+		const userId = client.data.userId as string;
+		if (!userId || !payload?.conversationId) return { success: false };
+
+		const context = await this.chatsService.getConversationPresenceForUser(userId, payload.conversationId);
+		const room = `conversation:${payload.conversationId}`;
+		client.to(room).emit('typing_state', {
+			conversationId: payload.conversationId,
+			userId,
+			isTyping: true,
+		});
+
+		if (context.otherUserId) {
+			this.server.to(`user:${context.otherUserId}`).emit('typing_state', {
+				conversationId: payload.conversationId,
+				userId,
+				isTyping: true,
+			});
+		}
+
+		return { success: true };
+	}
+
+	@SubscribeMessage('typing_stop')
+	async typingStop(
+		@ConnectedSocket() client: Socket,
+		@MessageBody() payload: { conversationId: string },
+	) {
+		const userId = client.data.userId as string;
+		if (!userId || !payload?.conversationId) return { success: false };
+
+		const context = await this.chatsService.getConversationPresenceForUser(userId, payload.conversationId);
+		const room = `conversation:${payload.conversationId}`;
+		client.to(room).emit('typing_state', {
+			conversationId: payload.conversationId,
+			userId,
+			isTyping: false,
+		});
+
+		if (context.otherUserId) {
+			this.server.to(`user:${context.otherUserId}`).emit('typing_state', {
+				conversationId: payload.conversationId,
+				userId,
+				isTyping: false,
+			});
+		}
+
+		return { success: true };
+	}
+
+	@SubscribeMessage('mark_read')
+	async markRead(
+		@ConnectedSocket() client: Socket,
+		@MessageBody() payload: { conversationId: string },
+	) {
+		const userId = client.data.userId as string;
+		if (!userId || !payload?.conversationId) return { success: false };
+
+		const result = await this.chatsService.markConversationAsRead(userId, payload.conversationId);
+		if (result.messageIds.length > 0) {
+			const room = `conversation:${payload.conversationId}`;
+			this.server.to(room).emit('messages_read', {
+				conversationId: payload.conversationId,
+				readerId: userId,
+				messageIds: result.messageIds,
+				readAt: new Date().toISOString(),
+			});
+		}
+
+		return {
+			success: true,
+			data: {
+				messageIds: result.messageIds,
+			},
+		};
 	}
 }
