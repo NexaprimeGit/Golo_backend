@@ -1,6 +1,6 @@
 import {
   Controller, Get, Post, Put, Delete, Body, Param, Query,
-  UsePipes, ValidationPipe, Logger, HttpCode, HttpStatus, UseGuards
+  UsePipes, ValidationPipe, Logger, HttpCode, HttpStatus, UseGuards, Request
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -1010,18 +1010,17 @@ async testKafka() {
   /**
    * Keep this dynamic GET route near the bottom so static routes always win.
    */
+  @UseGuards(JwtAuthGuard)
   @Get(':adId')
   async getAdById(@Param('adId') adId: string, @CurrentUser() user?: any) {
     this.logger.log(`REST: Getting ad by ID: ${adId}`);
-    this.logger.log(`REST: CurrentUser = ${user ? JSON.stringify(user) : 'undefined'}`);
 
     try {
       const ad = await this.adsService.getAdById(adId);
 
-      // Log auth state for debugging
+      // Track view ONLY if user is authenticated
       if (user?.id) {
         this.logger.log(`✓ Authenticated user ${user.id} viewing ad ${adId} - tracking view`);
-        // Track view ONLY if user is authenticated
         this.adsService.trackViewWithVisitor(adId, user.id).catch(error => {
           this.logger.error(`Error tracking view: ${error.message}`);
         });
