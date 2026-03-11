@@ -5,6 +5,7 @@ import {
 import { UsersService } from './users.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { SocialAuthDto } from './dto/social-auth.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -34,6 +35,16 @@ export class UsersController {
     return {
       success: true,
       message: 'Login successful',
+      data: result,
+    };
+  }
+
+  @Post('social-auth')
+  async socialAuth(@Body() socialAuthDto: SocialAuthDto, @Ip() ip: string) {
+    const result = await this.usersService.socialAuth(socialAuthDto, ip);
+    return {
+      success: true,
+      message: 'Social login successful',
       data: result,
     };
   }

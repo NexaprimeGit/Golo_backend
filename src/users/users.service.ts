@@ -6,6 +6,7 @@ import { JwtService } from '@nestjs/jwt';
 import { User, UserDocument, UserRole } from './schemas/user.schema';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { SocialAuthDto } from './dto/social-auth.dto';
 import { UserResponseDto } from './dto/user-response.dto';
 import { KafkaService } from '../kafka/kafka.service';
 import { KAFKA_TOPICS } from '../common/constants/kafka-topics';
@@ -148,6 +149,90 @@ export class UsersService {
       accessToken,
       refreshToken,
       user: this.toResponseDto(user),
+    };
+  }
+
+  async socialAuth(
+    socialAuthDto: SocialAuthDto,
+    ip?: string,
+  ): Promise<{ accessToken: string; refreshToken: string; user: UserResponseDto }> {
+    this.logger.log(`Social auth: ${socialAuthDto.email} via ${socialAuthDto.provider}`);
+
+    let user = await this.userModel.findOne({ email: socialAuthDto.email }).exec();
+
+    if (!user) {
+      const generatedPassword = await bcrypt.hash(
+        `social_${socialAuthDto.provider}_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+        10,
+      );
+
+      user = await this.userModel.create({
+        name: socialAuthDto.name,
+        email: socialAuthDto.email,
+        password: generatedPassword,
+        role: UserRole.USER,
+        isEmailVerified: true,
+        profile: {
+          phone: socialAuthDto.phone,
+        },
+        metadata: {
+          registeredIp: ip || '0.0.0.0',
+        },
+        refreshTokens: [],
+      });
+
+      if (this.kafkaService) {
+        await this.kafkaService.emit(KAFKA_TOPICS.USER_REGISTERED, {
+          userId: user._id,
+          email: user.email,
+          role: user.role,
+          provider: socialAuthDto.provider,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    }
+
+    const payload = { sub: user._id, email: user.email, role: user.role };
+    const accessToken = this.jwtService.sign(payload, {
+      secret: this.configService.get('JWT_SECRET'),
+      expiresIn: this.configService.get('JWT_EXPIRATION') || '15m',
+    });
+    const refreshToken = this.jwtService.sign(payload, {
+      secret: this.configService.get('JWT_REFRESH_SECRET'),
+      expiresIn: this.configService.get('JWT_REFRESH_EXPIRATION') || '7d',
+    });
+
+    await this.userModel
+      .updateOne(
+        { _id: user._id },
+        {
+          $push: { refreshTokens: refreshToken },
+          $set: {
+            isEmailVerified: true,
+            name: user.name || socialAuthDto.name,
+            'profile.phone': user.profile?.phone || socialAuthDto.phone,
+            'metadata.lastLoginAt': new Date(),
+            'metadata.lastLoginIp': ip,
+          },
+        },
+      )
+      .exec();
+
+    if (this.kafkaService) {
+      await this.kafkaService.emit(KAFKA_TOPICS.USER_LOGGED_IN, {
+        userId: user._id,
+        email: user.email,
+        provider: socialAuthDto.provider,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const refreshedUser = await this.userModel.findById(user._id).exec();
+
+    return {
+      accessToken,
+      refreshToken,
+      user: this.toResponseDto(refreshedUser || user),
     };
   }
 
