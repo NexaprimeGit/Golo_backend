@@ -498,9 +498,15 @@ export class AdsService {
     };
     ads: any[];
   }> {
+    const owner = await this.userModel
+      .findById(userId)
+      .select('name email role profile metadata createdAt')
+      .lean()
+      .exec();
+
     const ads = await this.adModel
       .find({ userId })
-      .select('adId title category status views viewHistory contactClicks isPromoted promotedUntil createdAt price images city')
+      .select('adId title description category subCategory status views viewHistory contactClicks isPromoted promotedUntil createdAt updatedAt price images videos city state pincode location locationCoordinates contactInfo primaryContact cities language selectedDates templateId tags expiryDate metadata categorySpecificData reportCount isUnderReview autoDisabled disabledAt disabledReason negotiable')
       .sort({ createdAt: -1 })
       .lean()
       .exec();
@@ -533,18 +539,52 @@ export class AdsService {
     const adsWithAnalytics = ads.map(ad => ({
       adId: ad.adId,
       title: ad.title,
+      description: ad.description,
       category: ad.category,
+      subCategory: ad.subCategory,
       status: ad.status,
       price: ad.price,
+      negotiable: ad.negotiable || false,
+      location: ad.location,
       city: ad.city,
+      state: ad.state,
+      pincode: ad.pincode,
+      cities: ad.cities || [],
+      language: ad.language || 'english',
       image: ad.images?.[0] || null,
+      imageCount: ad.images?.length || 0,
+      videoCount: ad.videos?.length || 0,
+      templateId: ad.templateId || 1,
       views: ad.viewHistory?.length || 0,          // unique visitors = views
       uniqueVisitors: ad.viewHistory?.length || 0, // kept for compatibility
+      viewerIds: ad.viewHistory || [],
       contactClicks: ad.contactClicks || 0,
       wishlistCount: wishlistCounts[ad.adId] || 0,
+      clickThroughRate: (ad.viewHistory?.length || 0) > 0 ? Number((((ad.contactClicks || 0) / (ad.viewHistory?.length || 0)) * 100).toFixed(2)) : 0,
+      wishlistRate: (ad.viewHistory?.length || 0) > 0 ? Number((((wishlistCounts[ad.adId] || 0) / (ad.viewHistory?.length || 0)) * 100).toFixed(2)) : 0,
       isPromoted: ad.isPromoted || false,
       promotedUntil: ad.promotedUntil || null,
+      expiryDate: ad.expiryDate || null,
+      reportCount: ad.reportCount || 0,
+      isUnderReview: ad.isUnderReview || false,
+      autoDisabled: ad.autoDisabled || false,
+      disabledAt: ad.disabledAt || null,
+      disabledReason: ad.disabledReason || null,
+      tags: ad.tags || [],
+      selectedDates: ad.selectedDates || [],
+      primaryContact: ad.primaryContact || null,
+      contactInfo: ad.contactInfo || null,
+      metadata: ad.metadata || null,
+      locationCoordinates: ad.locationCoordinates || null,
+      categorySpecificData: ad.categorySpecificData || null,
+      ownerName: owner?.name || null,
+      ownerEmail: owner?.email || null,
+      ownerRole: owner?.role || null,
+      ownerProfile: owner?.profile || null,
+      ownerMetadata: owner?.metadata || null,
+      ownerCreatedAt: owner?.createdAt || null,
       createdAt: ad.createdAt,
+      updatedAt: ad.updatedAt,
     }));
 
     return {
